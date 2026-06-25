@@ -1,0 +1,21 @@
+# Netlify configuration for the AHK v2 Script Builder.
+# Static site — no build step. Security headers are applied to every response.
+
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Content Security Policy.
+    #   script-src: self + cdnjs (JSZip only). No 'unsafe-inline', so injected
+    #     markup cannot run scripts even if it reaches the DOM.
+    #   style-src:  'unsafe-inline' is required because the UI sets inline style
+    #     attributes; styles cannot exfiltrate data, so this is low risk.
+    #   img-src:    data: is needed for the canvas-generated crop thumbnails.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'none'"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), usb=(), payment=()"

@@ -134,3 +134,28 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Generated exports — these embed screenshots / describe automation and should
+# never be committed. They land here only if you save them into the repo while
+# testing before publishing.
+ahk_project_*.json
+ahk_automation_*.zip
+*.ahk
+*.zip
+
+# Local scratch space: drop test screenshots / throwaway files in scratch/ and
+# they stay out of git. (Avoids a blanket *.png ignore that would also block
+# intentionally committing a README image later.)
+scratch/
+_local/
+
+# OS / editor cruft
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+.idea/
+*.swp

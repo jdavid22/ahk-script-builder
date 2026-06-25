@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AHK v2 Script Builder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=DM+Sans:opsz,wght@9..40,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>Script Builder</h1>
+      <span class="version">ahk · v2</span>
+    </div>
+    <div class="header-actions">
+      <div class="group">
+        <button id="saveProjectBtn" class="btn">Save</button>
+        <button id="loadProjectBtn" class="btn">Load</button>
+        <input type="file" id="projectFileInput" accept=".json,application/json" hidden>
+      </div>
+      <div class="divider"></div>
+      <button id="addNonImageActionBtn" class="btn">+ Add Step</button>
+      <div class="divider"></div>
+      <button id="previewScriptBtn" class="btn">Preview Script</button>
+      <button id="exportBtn" class="btn btn-primary">Export Package</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- LEFT: Screenshot workspace -->
+    <section id="workspace" class="panel">
+      <h2>Screenshot</h2>
+
+      <div id="dropZone" class="drop-zone">
+        <div class="welcome-mark" aria-hidden="true">
+          <!-- Crosshair + frame mark: represents cropping & targeting -->
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <circle cx="12" cy="12" r="3"/>
+            <line x1="12" y1="3" x2="12" y2="7"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+            <line x1="3" y1="12" x2="7" y2="12"/>
+            <line x1="17" y1="12" x2="21" y2="12"/>
+          </svg>
+        </div>
+        <h3 class="welcome-title">Teach your computer to do this for you</h3>
+        <p class="welcome-sub">Drop a screenshot, crop the buttons you want to click, arrange them into steps, and export an AutoHotkey script.</p>
+
+        <div class="drop-cta">
+          <p>Drag an image here, paste with <kbd>Ctrl</kbd>+<kbd>V</kbd>, or</p>
+          <input type="file" id="fileInput" accept="image/*" hidden>
+          <button id="browseBtn" class="btn">Choose File</button>
+        </div>
+
+        <ol class="quick-start">
+          <li>Capture a screenshot of the screen you want to automate <span class="mono">(Win+Shift+S)</span></li>
+          <li>Paste it here, then drag rectangles around buttons or icons</li>
+          <li>Add other steps from <strong>+ Add Step</strong>: launch a program, type text, send keys&hellip;</li>
+          <li>Click <strong>Export Package</strong> to get a runnable <code>.ahk</code> script</li>
+        </ol>
+      </div>
+
+      <div id="screenshotArea" class="hidden">
+        <div class="zoom-toolbar">
+          <button id="zoomOutBtn" class="btn btn-subtle zoom-btn" title="Zoom out">−</button>
+          <span id="zoomLevel" class="zoom-level">100%</span>
+          <button id="zoomInBtn" class="btn btn-subtle zoom-btn" title="Zoom in">+</button>
+          <div class="divider"></div>
+          <button id="zoomFitBtn" class="btn btn-subtle" title="Fit to width">Fit</button>
+          <button id="zoom100Btn" class="btn btn-subtle" title="Actual size (1:1)">1:1</button>
+          <span class="zoom-hint">Ctrl + scroll to zoom</span>
+        </div>
+        <div id="canvasViewport" class="canvas-viewport">
+          <div class="canvas-wrap">
+            <canvas id="screenshotCanvas"></canvas>
+            <div id="selectionBox" class="selection-box hidden"></div>
+          </div>
+        </div>
+        <p class="hint">Click and drag on the screenshot to select a UI element. Zoom in for precise selection of small targets.</p>
+        <button id="clearScreenshotBtn" class="btn btn-subtle">Load Different Screenshot</button>
+      </div>
+    </section>
+
+    <!-- MIDDLE: Crop preview + action editor -->
+    <section id="editor" class="panel">
+      <h2>Step Editor</h2>
+
+      <div id="cropPreviewArea" class="hidden">
+        <h3>Crop Preview</h3>
+        <div class="crop-with-marker">
+          <canvas id="cropCanvas"></canvas>
+          <div id="cropClickMarker" class="click-marker hidden"></div>
+        </div>
+        <p class="hint" id="clickPosHint">Click on the preview to set where the script should click. Defaults to center.</p>
+        <button id="resetClickPosBtn" class="btn btn-subtle hidden">Reset to center</button>
+
+        <label>Image name
+          <input type="text" id="cropName" class="field-mono" placeholder="submit_button">
+        </label>
+
+        <label>Action type
+          <select id="cropActionType">
+            <option value="click_image">Find image and click</option>
+            <option value="wait_for_image">Wait until image appears</option>
+            <option value="skip_if_not_found">Skip next N steps if not found</option>
+          </select>
+        </label>
+
+        <label>Tolerance
+          <div class="slider-row">
+            <input type="range" id="cropTolerance" value="30" min="0" max="120">
+            <span class="slider-value" id="cropToleranceValue">30</span>
+          </div>
+          <div class="slider-labels"><span>Strict</span><span>Loose</span></div>
+        </label>
+
+        <label>Max wait seconds
+          <input type="number" id="cropMaxWait" value="10" min="0">
+        </label>
+
+        <label id="cropSkipCountLabel" class="hidden">Skip count (steps to skip if not found)
+          <input type="number" id="cropSkipCount" value="1" min="1">
+        </label>
+
+        <div class="row">
+          <button id="addCropToQueueBtn" class="btn btn-primary">Add to Steps</button>
+          <button id="cancelCropBtn" class="btn btn-subtle">Cancel</button>
+        </div>
+      </div>
+
+      <div id="itemEditor" class="hidden">
+        <h3>Edit Step</h3>
+        <div id="itemEditorFields"></div>
+        <div class="row">
+          <button id="saveItemBtn" class="btn btn-primary">Save</button>
+          <button id="closeEditorBtn" class="btn btn-subtle">Close</button>
+        </div>
+      </div>
+
+      <div id="editorPlaceholder">
+        <p class="hint">Crop a region from the screenshot, or click a step on the right to edit it.</p>
+      </div>
+    </section>
+
+    <!-- RIGHT: Steps queue -->
+    <aside id="queuePanel" class="panel">
+      <h2>Steps</h2>
+
+      <div id="globalSettings">
+        <label>When script finishes
+          <select id="exitBehavior">
+            <option value="log">Save a log and exit</option>
+            <option value="nolog">Exit without saving a log</option>
+          </select>
+        </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="saveScreenshots" checked>
+          <span>Save a screenshot after each step</span>
+        </label>
+      </div>
+
+      <ol id="queueList"></ol>
+
+      <p id="waitSummary" class="wait-summary"></p>
+
+      <p id="queueEmpty" class="hint">No steps yet. Crop a region from the screenshot, or click <strong>+ Add Step</strong>.</p>
+    </aside>
+  </main>
+
+  <!-- Modal for picking a non-image action type -->
+  <div id="actionPickerModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Add a Step</h3>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Programs &amp; Windows</div>
+        <button class="btn modal-action cat-program" data-type="launch">
+          <span class="ma-icon">▶</span>Launch program or open webpage
+        </button>
+        <button class="btn modal-action cat-program" data-type="window_max">
+          <span class="ma-icon">▣</span>Maximize / fullscreen window
+        </button>
+        <button class="btn modal-action cat-program" data-type="close_windows">
+          <span class="ma-icon">✕</span>Close window(s) — reset state
+        </button>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Mouse &amp; Keyboard</div>
+        <button class="btn modal-action cat-input" data-type="type_text">
+          <span class="ma-icon">T</span>Type text
+        </button>
+        <button class="btn modal-action cat-input" data-type="send_keys">
+          <span class="ma-icon">⌘</span>Send key combo (e.g. Ctrl+T)
+        </button>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Timing &amp; Flow</div>
+        <button class="btn modal-action cat-flow" data-type="wait_seconds">
+          <span class="ma-icon">◷</span>Wait a fixed number of seconds
+        </button>
+        <button class="btn modal-action cat-meta" data-type="log">
+          <span class="ma-icon">≡</span>Log a message
+        </button>
+        <button class="btn modal-action cat-meta" data-type="comment">
+          <span class="ma-icon">#</span>Comment / section divider
+        </button>
+      </div>
+
+      <button id="closeActionPicker" class="btn btn-subtle">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Script preview modal -->
+  <div id="scriptPreviewModal" class="modal hidden">
+    <div class="modal-content modal-wide">
+      <h3>Generated AutoHotkey Script</h3>
+      <p class="hint">This is exactly what <code>automation.ahk</code> will contain. Read-only preview.</p>
+      <pre id="scriptPreviewCode" class="script-preview"></pre>
+      <div class="row">
+        <button id="copyScriptBtn" class="btn">Copy to Clipboard</button>
+        <button id="closeScriptPreview" class="btn btn-subtle">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JSZip for packaging the export. Pinned with Subresource Integrity so a
+       tampered CDN copy is rejected by the browser rather than executed. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+          integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG"
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
+  <script src="app.js"></script>
+</body>
+</html>
