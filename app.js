@@ -1862,6 +1862,46 @@ $('saveProjectBtn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+// Reset everything back to a clean slate. Guarded by a confirmation, and
+// pushes an undo snapshot so an accidental reset can be recovered in-session
+// with Ctrl/Cmd+Z (the queue + settings; the loaded screenshot is not restored).
+$('resetBtn').addEventListener('click', () => {
+  // Nothing to clear — don't nag with a pointless confirm.
+  if (state.queue.length === 0 && !state.screenshot) return;
+
+  const ok = confirm(
+    'Reset everything?\n\nThis clears all steps, the loaded screenshot, and your ' +
+    'autosaved session. You can undo it this session with Ctrl/Cmd+Z.'
+  );
+  if (!ok) return;
+
+  pushUndo(); // allow an in-session undo of the reset
+
+  state.queue = [];
+  state.screenshot = null;
+  state.selectedItemId = null;
+  state.pendingCrop = null;
+  state.recropTargetId = null;
+  state.justAddedId = null;
+  state.exitBehavior = 'log';
+  state.saveScreenshots = true;
+  nextId = 1;
+
+  // Clear the persisted autosave so a fresh page load also starts clean.
+  try { localStorage.removeItem(AUTOSAVE_KEY); } catch (_) {}
+
+  // Reset the UI back to the empty/drop-zone state.
+  $('exitBehavior').value = state.exitBehavior;
+  $('saveScreenshots').checked = state.saveScreenshots;
+  $('screenshotArea').classList.add('hidden');
+  dropZone.classList.remove('hidden');
+  $('actionPickerModal').classList.add('hidden');
+  $('scriptPreviewModal').classList.add('hidden');
+  closeItemEditor();
+  hideCropPreview();
+  renderQueue();
+});
+
 $('loadProjectBtn').addEventListener('click', () => $('projectFileInput').click());
 
 $('projectFileInput').addEventListener('change', (e) => {
