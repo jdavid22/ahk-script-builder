@@ -457,6 +457,18 @@ textarea:focus {
 }
 .field-mono { font-family: var(--font-mono); font-size: 0.85rem; }
 
+/* Block-level field that contains its own interactive controls (canvas +
+   buttons), so it must NOT be a <label>. Mirrors the <label> field styling. */
+.field-block { display: block; margin: var(--space-3) 0; }
+.field-block-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+  letter-spacing: 0.005em;
+  margin-bottom: var(--space-1);
+}
+
 /* Range slider with labels */
 .slider-row {
   display: flex;

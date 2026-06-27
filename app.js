@@ -973,6 +973,18 @@ function renderItemEditor(item) {
     f.appendChild(wrap);
   };
 
+  // Like `field`, but uses a <div> wrapper instead of <label>. Use this when
+  // the field contains its own interactive controls (a canvas to click, a
+  // button): inside a <label>, clicking the canvas also fires a synthetic
+  // click on the label's first labelable descendant (the Reset button), which
+  // would immediately undo the click you just made.
+  const fieldBlock = (label, inputHtml) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'field-block';
+    wrap.innerHTML = `<span class="field-block-label">${label}</span>${inputHtml}`;
+    f.appendChild(wrap);
+  };
+
   // Slider with live numeric readout and Strict/Loose labels.
   const toleranceSlider = (val) => `
     <div class="slider-row">
@@ -1023,7 +1035,7 @@ function renderItemEditor(item) {
            <option value="double" ${item.clickType==='double'?'selected':''}>Double click</option>
            <option value="middle" ${item.clickType==='middle'?'selected':''}>Middle click</option>
          </select>`);
-      field('Click position',
+      fieldBlock('Click position',
         `<div class="edit-click-pos">
            <div class="crop-with-marker">
              <canvas class="edit-click-canvas" data-key-img="imageName"></canvas>
