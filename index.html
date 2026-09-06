@@ -16,9 +16,9 @@
     </div>
     <div class="header-actions">
       <div class="group">
-        <button id="saveProjectBtn" class="btn">Save</button>
-        <button id="loadProjectBtn" class="btn">Load</button>
-        <button id="resetBtn" class="btn">Reset</button>
+        <button id="saveProjectBtn" class="btn" title="Save this project to a file on your computer">Save</button>
+        <button id="loadProjectBtn" class="btn" title="Open a saved project file">Load</button>
+        <button id="resetBtn" class="btn" title="Clear everything and start over">Reset</button>
         <input type="file" id="projectFileInput" accept=".json,application/json" hidden>
       </div>
       <div class="divider"></div>
@@ -134,9 +134,9 @@
       <div id="itemEditor" class="hidden">
         <h3>Edit Step</h3>
         <div id="itemEditorFields"></div>
+        <p class="hint">Changes save automatically.</p>
         <div class="row">
-          <button id="saveItemBtn" class="btn btn-primary">Save</button>
-          <button id="closeEditorBtn" class="btn btn-subtle">Close</button>
+          <button id="closeEditorBtn" class="btn btn-primary">Done</button>
         </div>
       </div>
 
@@ -172,6 +172,8 @@
 
   <footer class="app-credit">
     <a href="https://josiahmdavidson.com" target="_blank" rel="noopener">Built by Claude + Josiah in Illinois 🌽</a>
+    <span class="credit-sep" aria-hidden="true">|</span>
+    <a id="platformCredit" href="https://hub.digitaldoka.com" target="_blank" rel="noopener">Part of the Doka Platform family of Apps 🏗️</a>
   </footer>
 
   <!-- Modal for picking a non-image action type -->

@@ -486,6 +486,10 @@ $('addNonImageActionBtn').addEventListener('click', () => {
 $('closeActionPicker').addEventListener('click', () => {
   $('actionPickerModal').classList.add('hidden');
 });
+// Click outside the dialog (on the dimmed backdrop) to dismiss it.
+$('actionPickerModal').addEventListener('click', (e) => {
+  if (e.target === $('actionPickerModal')) $('actionPickerModal').classList.add('hidden');
+});
 
 document.querySelectorAll('.modal-action').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -518,7 +522,7 @@ function createDefaultItem(type) {
   const base = { id: newId(), type };
   switch (type) {
     case 'launch':
-      return { ...base, target: '', isUrl: false };
+      return { ...base, target: '' };
     case 'window_max':
       return { ...base, mode: 'maximize', windowTitle: 'A' }; // 'A' = active window in AHK
     case 'close_windows':
@@ -963,9 +967,32 @@ function closeItemEditor() {
 
 $('closeEditorBtn').addEventListener('click', closeItemEditor);
 
+// True once we've captured an undo snapshot for the current edit session
+// (reset every time the editor re-renders). Keeps live editing to a single
+// undo entry per step instead of one per keystroke.
+let editUndoTaken = false;
+function ensureEditUndo() {
+  if (!editUndoTaken) { pushUndo(); editUndoTaken = true; }
+}
+
+// Write one editor field's value straight into the item as it changes, so
+// edits are never lost by navigating away without an explicit save.
+function commitEditField(el, item) {
+  const key = el.dataset.key;
+  let val;
+  if (el.type === 'checkbox') val = el.checked;
+  else if (el.type === 'number') val = parseFloat(el.value) || 0;
+  else val = el.value;
+  ensureEditUndo();
+  item[key] = val;
+  renderQueue();
+  autosave();
+}
+
 function renderItemEditor(item) {
   const f = $('itemEditorFields');
   f.innerHTML = '';
+  editUndoTaken = false;   // new edit session for this render
 
   const field = (label, inputHtml) => {
     const wrap = document.createElement('label');
@@ -999,8 +1026,6 @@ function renderItemEditor(item) {
       field('Program path or URL',
         `<input type="text" class="field-mono" data-key="target" value="${escapeAttr(item.target)}"
                 placeholder="C:\\Path\\app.exe or https://example.com">`);
-      field('Treat as URL (open in default browser)',
-        `<input type="checkbox" data-key="isUrl" ${item.isUrl ? 'checked' : ''}>`);
       break;
 
     case 'window_max':
@@ -1114,6 +1139,14 @@ function renderItemEditor(item) {
     }
   });
 
+  // Live-commit every field as it changes. Text/number/range commit on each
+  // keystroke ('input'); checkboxes and selects on 'change'. This is what
+  // makes edits impossible to lose by clicking away without saving.
+  f.querySelectorAll('[data-key]').forEach(el => {
+    const evt = (el.type === 'checkbox' || el.tagName === 'SELECT') ? 'change' : 'input';
+    el.addEventListener(evt, () => commitEditField(el, item));
+  });
+
   // For click_image: render the cropped image into the canvas and let the
   // user click anywhere on it to set the click point. Stored as
   // item.clickX / item.clickY in pixel coords from top-left of the image.
@@ -1144,17 +1177,21 @@ function renderItemEditor(item) {
         const r = canvas.getBoundingClientRect();
         const sx = canvas.width / r.width;
         const sy = canvas.height / r.height;
+        ensureEditUndo();
         item.clickX = Math.round((e.clientX - r.left) * sx);
         item.clickY = Math.round((e.clientY - r.top) * sy);
         positionEditClickMarker(canvas, marker, item, hint, reset);
         renderQueue();
+        autosave();
       });
 
       reset.addEventListener('click', () => {
+        ensureEditUndo();
         item.clickX = null;
         item.clickY = null;
         positionEditClickMarker(canvas, marker, item, hint, reset);
         renderQueue();
+        autosave();
       });
     }
   }
@@ -1182,21 +1219,6 @@ function positionEditClickMarker(canvas, marker, item, hint, reset) {
     reset.classList.toggle('hidden', item.clickX === null || item.clickX === undefined);
   }
 }
-
-$('saveItemBtn').addEventListener('click', () => {
-  const item = state.queue.find(i => i.id === state.selectedItemId);
-  if (!item) return;
-  commitChange(() => {
-    $('itemEditorFields').querySelectorAll('[data-key]').forEach(el => {
-      const key = el.dataset.key;
-      let val;
-      if (el.type === 'checkbox') val = el.checked;
-      else if (el.type === 'number') val = parseFloat(el.value) || 0;
-      else val = el.value;
-      item[key] = val;
-    });
-  });
-});
 
 function escapeAttr(s) {
   return String(s ?? '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -1232,10 +1254,8 @@ $('saveScreenshots').addEventListener('change', (e) => {
 
 function generateAhkScript() {
   const lines = [];
-  const push = (...ss) => {
-    if (ss.length === 0) lines.push('');
-    else ss.forEach(s => lines.push(s));
-  };
+  // Append one line (or a blank line when called with no argument).
+  const push = (line = '') => lines.push(line);
 
   push('; ============================================================');
   push('; Auto-generated by AHK v2 Script Builder');
@@ -1589,14 +1609,8 @@ function generateStep(item, regionArgs = '') {
   switch (item.type) {
 
     case 'launch': {
+      // Run() handles both executables and URLs identically.
       const target = ahkString(item.target);
-      if (item.isUrl) {
-        return [
-          `LogMsg("Opening URL: " . ${target})`,
-          `Run(${target})`,
-          `Sleep(1500)`,
-        ];
-      }
       return [
         `LogMsg("Launching: " . ${target})`,
         `Run(${target})`,
@@ -1760,6 +1774,10 @@ $('previewScriptBtn').addEventListener('click', () => {
 $('closeScriptPreview').addEventListener('click', () => {
   $('scriptPreviewModal').classList.add('hidden');
 });
+// Click outside the dialog (on the dimmed backdrop) to dismiss it.
+$('scriptPreviewModal').addEventListener('click', (e) => {
+  if (e.target === $('scriptPreviewModal')) $('scriptPreviewModal').classList.add('hidden');
+});
 $('copyScriptBtn').addEventListener('click', async () => {
   const text = $('scriptPreviewCode').textContent;
   try {
@@ -1776,10 +1794,51 @@ $('copyScriptBtn').addEventListener('click', async () => {
   }
 });
 
+// List steps that are missing information they need to run, as
+// human-readable lines. Empty list = everything looks complete.
+function findIncompleteSteps() {
+  const out = [];
+  state.queue.forEach((item, idx) => {
+    const n = idx + 1;
+    const label = humanType(item.type);
+    switch (item.type) {
+      case 'launch':
+        if (!String(item.target || '').trim())
+          out.push(`  • Step ${n} (${label}): no program or URL set`);
+        break;
+      case 'click_image':
+      case 'wait_for_image':
+      case 'skip_if_not_found':
+        if (!isSafeImageData(item.imageData))
+          out.push(`  • Step ${n} (${label}): image is missing`);
+        else if (!String(item.imageName || '').trim())
+          out.push(`  • Step ${n} (${label}): no image name`);
+        break;
+      case 'send_keys':
+        if (!buildAhkKeyCombo(item))
+          out.push(`  • Step ${n} (${label}): no key or modifier set`);
+        break;
+      case 'type_text':
+        if (!String(item.text || '').length)
+          out.push(`  • Step ${n} (${label}): no text to type`);
+        break;
+    }
+  });
+  return out;
+}
+
 $('exportBtn').addEventListener('click', async () => {
   if (state.queue.length === 0) {
     alert('Queue is empty — add at least one action before exporting.');
     return;
+  }
+
+  // Warn (but don't block) if any steps are missing required details.
+  const problems = findIncompleteSteps();
+  if (problems.length) {
+    const msg = 'Some steps look incomplete and may not work when the script runs:\n\n'
+      + problems.join('\n') + '\n\nExport anyway?';
+    if (!confirm(msg)) return;
   }
 
   const zip = new JSZip();
@@ -1969,6 +2028,9 @@ document.addEventListener('keydown', (e) => {
     if (!$('actionPickerModal').classList.contains('hidden')) {
       $('actionPickerModal').classList.add('hidden');
     }
+    if (!$('scriptPreviewModal').classList.contains('hidden')) {
+      $('scriptPreviewModal').classList.add('hidden');
+    }
     return;
   }
 
@@ -2039,3 +2101,20 @@ function duplicateSelected() {
   }
   renderQueue();
 })();
+
+/* ============================================================
+   SECTION 12 — Footer credit (September tool challenge)
+   ------------------------------------------------------------
+   The markup hard-codes the evergreen "family of Apps" text. This block
+   only *overrides* it with the challenge wording while the date qualifies,
+   so from 1 Oct 2026 it's a dead no-op that can be deleted without touching
+   the markup — and if it ever throws, the correct evergreen text still shows.
+   Month is 0-based: 8 = September. Delete this block after 30 Sep 2026.
+   ============================================================ */
+const CHALLENGE_UNTIL = new Date(2026, 8, 30, 23, 59, 59, 999);
+const CHALLENGE_TEXT = 'Part of the September tool challenge 6 of 30 📅';
+function applyFooterCredit(now = new Date()) {
+  const el = $('platformCredit');
+  if (el && now <= CHALLENGE_UNTIL) el.textContent = CHALLENGE_TEXT;
+}
+applyFooterCredit();
