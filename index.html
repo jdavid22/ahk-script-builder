@@ -160,6 +160,13 @@
           <input type="checkbox" id="saveScreenshots" checked>
           <span>Save a screenshot after each step</span>
         </label>
+        <label class="checkbox-row">
+          <input type="checkbox" id="unattended" checked>
+          <span>Unattended run (no pop-ups — needed for Task Scheduler)</span>
+        </label>
+        <label>Browser process (for "Launch URL" steps)
+          <input type="text" id="browserExe" class="field-mono" value="msedge.exe" placeholder="msedge.exe">
+        </label>
       </div>
 
       <ol id="queueList"></ol>

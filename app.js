@@ -14,6 +14,8 @@ const state = {
   pendingCrop: null,       // crop awaiting "Add to Queue"
   exitBehavior: 'log',     // 'log' | 'nolog'
   saveScreenshots: true,   // save a screenshot after each step to logs/<timestamp>/
+  browserExe: 'msedge.exe',// process the "Launch URL" step waits for
+  unattended: true,        // true = suppress all MsgBox popups (they block a scheduled run)
   justAddedId: null,       // briefly flagged for flash-in animation on render
   recropTargetId: null,    // when set, the next crop replaces this item's image
 };
@@ -38,6 +40,8 @@ function snapshotState() {
     queue: state.queue,
     exitBehavior: state.exitBehavior,
     saveScreenshots: state.saveScreenshots,
+    browserExe: state.browserExe,
+    unattended: state.unattended,
     nextId,
   });
 }
@@ -48,9 +52,14 @@ function restoreSnapshot(json) {
   state.queue = sanitizeLoadedQueue(data.queue || []);
   state.exitBehavior = data.exitBehavior || 'log';
   state.saveScreenshots = data.saveScreenshots !== false;
+  // Defaults applied when the key is missing from older project files.
+  state.browserExe = (typeof data.browserExe === 'string' && data.browserExe) ? data.browserExe : 'msedge.exe';
+  state.unattended = data.unattended !== false;
   if (typeof data.nextId === 'number') nextId = data.nextId;
   if ($('exitBehavior')) $('exitBehavior').value = state.exitBehavior;
   if ($('saveScreenshots')) $('saveScreenshots').checked = state.saveScreenshots;
+  if ($('browserExe')) $('browserExe').value = state.browserExe;
+  if ($('unattended')) $('unattended').checked = state.unattended;
 }
 
 // Write current state to localStorage (best-effort; ignores quota errors).
@@ -524,7 +533,7 @@ function createDefaultItem(type) {
     case 'launch':
       return { ...base, target: '' };
     case 'window_max':
-      return { ...base, mode: 'maximize', windowTitle: 'A' }; // 'A' = active window in AHK
+      return { ...base, mode: 'maximize', windowTitle: '' }; // blank = window from last Launch step
     case 'close_windows':
       return { ...base, mode: 'all', windowTitle: '', exclusions: '' };
     case 'wait_seconds':
@@ -908,7 +917,7 @@ function humanType(type) {
 function humanLabel(item) {
   switch (item.type) {
     case 'launch': return item.target || '(no target set)';
-    case 'window_max': return `${item.mode} → ${item.windowTitle || 'A'}`;
+    case 'window_max': return `${item.mode} → ${item.windowTitle || 'window from last Launch'}`;
     case 'close_windows':
       return item.mode === 'all'
         ? `Close all windows${item.exclusions ? ` (except ${item.exclusions})` : ''}`
@@ -1034,8 +1043,8 @@ function renderItemEditor(item) {
            <option value="maximize" ${item.mode==='maximize'?'selected':''}>Maximize</option>
            <option value="fullscreen" ${item.mode==='fullscreen'?'selected':''}>Fullscreen (send F11)</option>
          </select>`);
-      field('Window title or class (use "A" for active window)',
-        `<input type="text" class="field-mono" data-key="windowTitle" value="${escapeAttr(item.windowTitle)}">`);
+      field('Window title or class (blank = window opened by the last Launch step; "A" = active window, discouraged for unattended runs)',
+        `<input type="text" class="field-mono" data-key="windowTitle" value="${escapeAttr(item.windowTitle)}" placeholder="(window from last Launch)">`);
       break;
 
     case 'close_windows':
@@ -1238,6 +1247,16 @@ $('saveScreenshots').addEventListener('change', (e) => {
   autosave();
 });
 
+$('unattended').addEventListener('change', (e) => {
+  state.unattended = e.target.checked;
+  autosave();
+});
+
+$('browserExe').addEventListener('input', (e) => {
+  state.browserExe = e.target.value;
+  autosave();
+});
+
 /* ============================================================
    SECTION 8 — AutoHotkey v2 script generation
    ------------------------------------------------------------
@@ -1265,25 +1284,30 @@ function generateAhkScript() {
   push('#SingleInstance Force');
   push('SetWorkingDir(A_ScriptDir)');
   push('');
+  push('; Search and click in absolute screen coordinates. AHK v2 defaults to');
+  push('; client-relative, so when the target window is not in the foreground');
+  push('; (typical for an unattended scheduled run) every ImageSearch and click');
+  push('; would otherwise be measured against the wrong window.');
+  push('CoordMode("Pixel", "Screen")');
+  push('CoordMode("Mouse", "Screen")');
+  push('');
   push('; --- Emergency abort hotkeys ---');
   push('; Press Esc for an immediate exit.');
   push('; Press Shift+C to log "Script terminated by user" and exit gracefully.');
   push('*Esc::ExitApp()');
   push('+c:: {');
-  if (state.exitBehavior === 'log') {
-    push('    global LogBuffer, LogFile');
-    push('    LogMsg("Script terminated by user")');
-    if (state.saveScreenshots) push('    try TakeStepScreenshot(998, "user_abort")');
-    push('    try FileAppend(LogBuffer, LogFile)');
-  } else {
-    push('    LogMsg("Script terminated by user")');
-    if (state.saveScreenshots) push('    try TakeStepScreenshot(998, "user_abort")');
-  }
+  push('    LogMsg("Script terminated by user")');
+  if (state.saveScreenshots) push('    try TakeStepScreenshot(998, "user_abort")');
   push('    ExitApp()');
   push('}');
   push('');
   push('; --- Configuration ---');
   push('ImagesFolder := A_ScriptDir . "\\images"');
+  // Window matched by URL-launch steps, and the window opened by the most
+  // recent Launch step (used by Maximize steps with a blank title).
+  const browserWinEsc = String(state.browserExe || 'msedge.exe').replace(/`/g, '``').replace(/"/g, '`"');
+  push('BrowserWin := "ahk_exe ' + browserWinEsc + '"');
+  push('LastLaunchedWin := ""');
   push('');
   push('; Each run gets its own timestamped folder under logs/ so hourly runs');
   push('; don\'t overwrite each other. The log file and any per-step');
@@ -1308,11 +1332,15 @@ function generateAhkScript() {
   // Helper functions for the generated script
   push('; --- Helper functions ---');
   push('LogMsg(msg) {');
-  push('    global LogBuffer');
+  push('    global LogBuffer, LogFile');
   push('    timestamp := FormatTime(, "yyyy-MM-dd HH:mm:ss")');
   push('    line := "[" . timestamp . "] " . msg');
   push('    LogBuffer .= line . "`n"');
   push('    OutputDebug(line)');
+  if (state.exitBehavior === 'log') {
+    push('    ; Write each line immediately so a scheduler-killed run still leaves a log.');
+    push('    try FileAppend(line . "`n", LogFile, "UTF-8")');
+  }
   push('}');
   push('');
   push('; Find an image on screen. Retries until maxSeconds elapses.');
@@ -1351,7 +1379,7 @@ function generateAhkScript() {
   push('    result := FindImage(imagePath, tolerance, maxSeconds, x1, y1, x2, y2)');
   push('    if !result.found {');
   push('        LogMsg("Image not found: " . imagePath)');
-  push('        MsgBox("Could not find image:`n" . imagePath, "Automation", "Icon!")');
+  if (!state.unattended) push('        MsgBox("Could not find image:`n" . imagePath, "Automation", "Icon!")');
   push('        return false');
   push('    }');
   push('    if (offsetX < 0 || offsetY < 0) {');
@@ -1388,8 +1416,8 @@ function generateAhkScript() {
   push('    LogMsg("Waiting for image: " . imagePath)');
   push('    result := FindImage(imagePath, tolerance, maxSeconds, x1, y1, x2, y2)');
   push('    if !result.found {');
-  push('        LogMsg("Timed out waiting for: " . imagePath)');
-  push('        MsgBox("Timed out waiting for image:`n" . imagePath, "Automation", "Icon!")');
+  push('        LogMsg("Timed out waiting for: " . imagePath . " (" . maxSeconds . "s)")');
+  if (!state.unattended) push('        MsgBox("Timed out waiting for image:`n" . imagePath, "Automation", "Icon!")');
   push('        return false');
   push('    }');
   push('    LogMsg("Image appeared: " . imagePath)');
@@ -1584,14 +1612,14 @@ function generateAhkScript() {
   push('    LogMsg("Automation finished successfully")');
   push('} catch as err {');
   push('    LogMsg("Fatal error: " . err.Message)');
-  push('    MsgBox("Automation failed: " . err.Message, "Error", "Icon!")');
+  if (!state.unattended) push('    MsgBox("Automation failed: " . err.Message, "Error", "Icon!")');
   push('}');
   push('');
 
-  // Exit behavior
+  // Exit behavior. The log is written line-by-line inside LogMsg (so a
+  // scheduler-killed run still leaves one), so there is no end-of-run flush.
   if (state.exitBehavior === 'log') {
-    push('; Save the log and exit');
-    push('try FileAppend(LogBuffer, LogFile)');
+    push('; The log was written as it went; just exit.');
     push('ExitApp()');
   } else {
     push('; Exit without saving a log');
@@ -1610,29 +1638,62 @@ function generateStep(item, regionArgs = '') {
 
     case 'launch': {
       // Run() handles both executables and URLs identically.
-      const target = ahkString(item.target);
-      return [
+      const raw = String(item.target || '');
+      const target = ahkString(raw);
+      // Work out which window this launch opens so we can wait for it and pull
+      // it to the foreground — otherwise a scheduled run may search/click the
+      // wrong window. URLs open the configured browser; a program path yields
+      // its .exe name. If neither applies, skip the focus block.
+      const isUrl = /^[a-zA-Z][\w+.-]*:\/\//.test(raw.trim());
+      let winSpec = null;
+      if (isUrl) {
+        winSpec = 'BrowserWin';
+      } else {
+        const m = raw.match(/([^\\/"]+\.exe)\b/i);
+        if (m) {
+          const exeEsc = m[1].replace(/`/g, '``').replace(/"/g, '`"');
+          winSpec = `"ahk_exe ${exeEsc}"`;
+        }
+      }
+      const out = [
         `LogMsg("Launching: " . ${target})`,
         `Run(${target})`,
-        `Sleep(1500)`,
       ];
+      if (winSpec) {
+        out.push(`LastLaunchedWin := ${winSpec}`);
+        out.push(`if WinWait(LastLaunchedWin, , 20) {`);
+        out.push(`    try WinActivate(LastLaunchedWin)`);
+        out.push(`    if !WinWaitActive(LastLaunchedWin, , 5)`);
+        out.push(`        LogMsg("Warning: " . LastLaunchedWin . " did not come to the foreground")`);
+        out.push(`} else {`);
+        out.push(`    LogMsg("Warning: no window matching " . LastLaunchedWin . " appeared within 20s")`);
+        out.push(`}`);
+      }
+      out.push(`Sleep(1500)`);
+      return out;
     }
 
     case 'window_max': {
-      const title = ahkString(item.windowTitle || 'A');
+      // Blank title → target the window opened by the last Launch step, falling
+      // back to the active window ("A") only if none was recorded. An explicit
+      // title/class is used verbatim.
+      const hasTitle = String(item.windowTitle || '').trim() !== '';
+      const target = hasTitle
+        ? ahkString(item.windowTitle)
+        : '(LastLaunchedWin != "" && WinExist(LastLaunchedWin) ? LastLaunchedWin : "A")';
       if (item.mode === 'fullscreen') {
         return [
-          `LogMsg("Sending F11 (fullscreen) to: " . ${title})`,
-          `try WinActivate(${title})`,
+          `LogMsg("Sending F11 (fullscreen) to: " . ${target})`,
+          `try WinActivate(${target})`,
           `Sleep(300)`,
           `Send("{F11}")`,
         ];
       }
       return [
-        `LogMsg("Maximizing window: " . ${title})`,
-        `try WinActivate(${title})`,
+        `LogMsg("Maximizing window: " . ${target})`,
+        `try WinActivate(${target})`,
         `Sleep(200)`,
-        `try WinMaximize(${title})`,
+        `try WinMaximize(${target})`,
       ];
     }
 
@@ -1922,6 +1983,8 @@ $('saveProjectBtn').addEventListener('click', () => {
     version: 1,
     exitBehavior: state.exitBehavior,
     saveScreenshots: state.saveScreenshots,
+    browserExe: state.browserExe,
+    unattended: state.unattended,
     queue: state.queue,
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1991,8 +2054,13 @@ $('projectFileInput').addEventListener('change', (e) => {
       state.queue = sanitizeLoadedQueue(data.queue);
       state.exitBehavior = data.exitBehavior || 'log';
       state.saveScreenshots = data.saveScreenshots !== false; // default true
+      // Defaults applied when the key is missing from older project files.
+      state.browserExe = (typeof data.browserExe === 'string' && data.browserExe) ? data.browserExe : 'msedge.exe';
+      state.unattended = data.unattended !== false; // default true
       $('exitBehavior').value = state.exitBehavior;
       $('saveScreenshots').checked = state.saveScreenshots;
+      $('browserExe').value = state.browserExe;
+      $('unattended').checked = state.unattended;
       // Re-seed the id counter so newly-added items don't collide.
       const maxN = state.queue.reduce((m, it) => {
         const n = parseInt(String(it.id || '').replace('act_', ''), 10);
